@@ -1,0 +1,2807 @@
+ <html>
+   <head>
+     <meta>
+     <link>
+     <link>
+     <link>
+     <link>
+     <link>
+     <meta>
+     <meta>
+     <meta>
+     <link>
+     <link>
+     <link>
+     <link>
+     <link>
+     <link>
+     <link>
+     <title>
+       'Constructing an HTML Tree | Web Browser Engineering'
+   <body>
+     <header>
+       <h1>
+         'Constructing an HTML Tree'
+       <a>
+         'Twitter'
+       ' ·\n'
+       <a>
+         'Blog'
+       ' ·\n'
+       <a>
+         'Patreon'
+       ' ·\n'
+       <a>
+         'Discussions'
+     <nav>
+       '\n  Chapter 4 of '
+       <a>
+         'Web Browser Engineering'
+       '.\n  '
+       <a>
+         '&lt;'
+       <a>
+         '&gt;'
+     <aside>
+       <div>
+         <img>
+         <a>
+           'Preorder »'
+       <p>
+         <span>
+           <i>
+             'Web Browser Engineering'
+           ' will be out soon.'
+         <a>
+           'Pre-order now »'
+     <nav>
+       <ul>
+         <li>
+           <a>
+             'A Tree of\nNodes'
+         <li>
+           <a>
+             'Constructing the Tree'
+         <li>
+           <a>
+             'Debugging\na Parser'
+         <li>
+           <a>
+             'Self-closing\nTags'
+         <li>
+           <a>
+             'Using\nthe Node Tree'
+         <li>
+           <a>
+             'Handling Author Errors'
+         <li>
+           <a>
+             'Summary'
+         <li>
+           <a>
+             'Outline'
+         <li>
+           <a>
+             'Exercises'
+     <p>
+       'So far, our browser sees web pages as a stream of open tags, close\ntags, and text. But HTML is actually a tree, and though the tree\nstructure hasn’t been important yet, it will be central to later\nfeatures like CSS, JavaScript, and visual effects. So this chapter adds\na proper HTML parser and converts the layout engine to use it.'
+     <h1>
+       'A Tree of Nodes'
+     <p>
+       'The HTML tree'
+       <span>
+         <span>
+           'This is\nthe tree that is usually called the DOM tree, for '
+           <a>
+             'Document\nObject Model'
+           '. I’ll keep calling it the HTML tree for\nnow.'
+       ' has one node for each open and close tag pair and a\nnode for each span of text.'
+       <span>
+         <span>
+           'In reality there are other types of nodes too, like\ncomments, doctypes, '
+           <code>
+             'CDATA'
+           ' sections, and processing\ninstructions. There are even some deprecated types!'
+       ' A\nsimple HTML document showing the structure is shown in Figure 1.'
+     <div>
+       <figure>
+         <img>
+         <figcaption>
+           'Figure 1: An HTML document, showing tags,\ntext, and the nesting structure.'
+     <p>
+       'For our browser to use a tree, tokens need to evolve into nodes. That\nmeans adding a list of children and a parent pointer to each one. Here’s\nthe new '
+       <code>
+         'Text'
+       ' class, representing text at the leaf of the\ntree:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' Text:'
+           <span>
+             <a>
+             <span>
+               'def'
+             <span>
+               '__init__'
+             '('
+             <span>
+               'self'
+             ', text, parent):'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.text '
+             <span>
+               '='
+             ' text'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.children '
+             <span>
+               '='
+             ' []'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.parent '
+             <span>
+               '='
+             ' parent'
+     <p>
+       'Since it takes two tags (the open and the close tag) to make a node,\nlet’s rename the '
+       <code>
+         'Tag'
+       ' class to '
+       <code>
+         'Element'
+       ', and\nmake it look like this:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' Element:'
+           <span>
+             <a>
+             <span>
+               'def'
+             <span>
+               '__init__'
+             '('
+             <span>
+               'self'
+             ', tag, parent):'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.tag '
+             <span>
+               '='
+             ' tag'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.children '
+             <span>
+               '='
+             ' []'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.parent '
+             <span>
+               '='
+             ' parent'
+     <p>
+       'I added a '
+       <code>
+         'children'
+       ' field to both '
+       <code>
+         'Text'
+       ' and\n'
+       <code>
+         'Element'
+       ', even though text nodes never have children, for\nconsistency.'
+     <p>
+       'Constructing a tree of nodes from source code is called parsing. A\nparser builds a tree one element or text node at a time. But that means\nthe parser needs to store an '
+       <em>
+         'incomplete'
+       ' tree as it goes. For\nexample, suppose the parser has so far read this bit of HTML:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               '&lt;html&gt;&lt;video&gt;&lt;/video&gt;&lt;section&gt;&lt;h1&gt;'
+             'This is my webpage'
+     <p>
+       'The parser has seen five tags (and one text node). The rest of the\nHTML will contain more open tags, close tags, and text, but no matter\nwhich tokens it sees, no new nodes will be added to the\n'
+       <code>
+         '&lt;video&gt;'
+       ' tag, which has already been closed. So that\nnode is “finished”. But the other nodes are unfinished: more children\ncan be added to the '
+       <code>
+         '&lt;html&gt;'
+       ',\n'
+       <code>
+         '&lt;section&gt;'
+       ', and '
+       <code>
+         '&lt;h1&gt;'
+       ' nodes,\ndepending on what HTML comes next—see Figure 2.'
+     <p>
+       'Since the parser reads the HTML file from beginning to end, these\nunfinished tags are always in a certain part of the tree. The unfinished\ntags have always been '
+       <em>
+         'opened'
+       ' but not yet closed; they are\nalways '
+       <em>
+         'later in the source'
+       ' than the finished nodes; and they\nare always '
+       <em>
+         'children of other unfinished tags'
+       '. To leverage these\nfacts, let’s represent an incomplete tree by storing a list of\nunfinished tags, ordered with parents before children. The first node in\nthe list is the root of the HTML tree; the last node in the list is the\nmost recent unfinished tag.'
+       <span>
+         <span>
+           'In Python, and most other languages, it’s faster to add and\nremove from the end of a list, instead of the\nbeginning.'
+     <p>
+       'Parsing is a little more complex than '
+       <code>
+         'lex'
+       ', so we’re\ngoing to want to break it into several functions, organized in a new\n'
+       <code>
+         'HTMLParser'
+       ' class. That class can also store the source code\nit’s analyzing and the incomplete tree:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' HTMLParser:'
+           <span>
+             <a>
+             <span>
+               'def'
+             <span>
+               '__init__'
+             '('
+             <span>
+               'self'
+             ', body):'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.body '
+             <span>
+               '='
+             ' body'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.unfinished '
+             <span>
+               '='
+             ' []'
+     <p>
+       'Before the parser starts, it hasn’t seen any tags at all, so the\n'
+       <code>
+         'unfinished'
+       ' list storing the tree starts empty. But as the\nparser reads tokens, that list fills up. Let’s start that by\naspirationally renaming the '
+       <code>
+         'lex'
+       ' function we have now to\n'
+       <code>
+         'parse'
+       ':'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' HTMLParser:'
+           <span>
+             <a>
+             <span>
+               'def'
+             ' parse('
+             <span>
+               'self'
+             '):'
+           <span>
+             <a>
+             <span>
+               '# ...'
+     <p>
+       'We’ll need to do a bit of surgery on '
+       <code>
+         'parse'
+       '. Right now\n'
+       <code>
+         'parse'
+       ' creates '
+       <code>
+         'Tag'
+       ' and '
+       <code>
+         'Text'
+       '\nobjects and appends them to the '
+       <code>
+         'out'
+       ' array. We need it to\ncreate '
+       <code>
+         'Element'
+       ' and '
+       <code>
+         'Text'
+       ' objects and add them\nto the '
+       <code>
+         'unfinished'
+       ' tree. Since a tree is a bit more complex\nthan a list, I’ll move the adding-to-a-tree logic to two new methods,\n'
+       <code>
+         'add_text'
+       ' and '
+       <code>
+         'add_tag'
+       '.'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'def'
+             ' parse('
+             <span>
+               'self'
+             '):'
+           <span>
+             <a>
+             '    text '
+             <span>
+               '='
+             <span>
+               '&quot;&quot;'
+           <span>
+             <a>
+             '    in_tag '
+             <span>
+               '='
+             <span>
+               'False'
+           <span>
+             <a>
+             <span>
+               'for'
+             ' c '
+             <span>
+               'in'
+             <span>
+               'self'
+             '.body:'
+           <span>
+             <a>
+             <span>
+               'if'
+             ' c '
+             <span>
+               '=='
+             <span>
+               '&quot;&lt;&quot;'
+             ':'
+           <span>
+             <a>
+             '            in_tag '
+             <span>
+               '='
+             <span>
+               'True'
+           <span>
+             <a>
+             <span>
+               'if'
+             ' text: '
+             <span>
+               'self'
+             '.add_text(text)'
+           <span>
+             <a>
+             '            text '
+             <span>
+               '='
+             <span>
+               '&quot;&quot;'
+           <span>
+             <a>
+             <span>
+               'elif'
+             ' c '
+             <span>
+               '=='
+             <span>
+               '&quot;&gt;&quot;'
+             ':'
+           <span>
+             <a>
+             '            in_tag '
+             <span>
+               '='
+             <span>
+               'False'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.add_tag(text)'
+           <span>
+             <a>
+             '            text '
+             <span>
+               '='
+             <span>
+               '&quot;&quot;'
+           <span>
+             <a>
+             <span>
+               'else'
+             ':'
+           <span>
+             <a>
+             '            text '
+             <span>
+               '+='
+             ' c'
+           <span>
+             <a>
+             <span>
+               'if'
+             <span>
+               'not'
+             ' in_tag '
+             <span>
+               'and'
+             ' text:'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.add_text(text)'
+           <span>
+             <a>
+             <span>
+               'return'
+             <span>
+               'self'
+             '.finish()'
+     <p>
+       'The '
+       <code>
+         'out'
+       ' variable is gone, and note that I’ve also moved\nthe return value to a new '
+       <code>
+         'finish'
+       ' method, which converts the\nincomplete tree to the final, complete tree. So: how do we add things to\nthe tree?'
+     <div>
+       <p>
+         'HTML derives from a long line of document processing systems. Its\npredecessor, '
+         <a>
+           'SGML'
+         ',\ntraces back to '
+         <a>
+           'RUNOFF'
+         ' and is\na sibling to '
+         <a>
+           'troff'
+         ', now used for Linux\nmanual pages. The '
+         <a>
+           'committee'
+         ' that\nstandardized SGML now works on the '
+         <code>
+           '.odf'
+         ',\n'
+         <code>
+           '.docx'
+         ', and '
+         <code>
+           '.epub'
+         ' formats.'
+     <h1>
+       'Constructing the Tree'
+     <p>
+       'Let’s talk about adding nodes to a tree. To add a text node we add it\nas a child of the last unfinished node:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' HTMLParser:'
+           <span>
+             <a>
+             <span>
+               'def'
+             ' add_text('
+             <span>
+               'self'
+             ', text):'
+           <span>
+             <a>
+             '        parent '
+             <span>
+               '='
+             <span>
+               'self'
+             '.unfinished['
+             <span>
+               '-'
+             <span>
+               '1'
+             ']'
+           <span>
+             <a>
+             '        node '
+             <span>
+               '='
+             ' Text(text, parent)'
+           <span>
+             <a>
+             '        parent.children.append(node)'
+     <p>
+       'On the other hand, tags are a little more complex since they might be\nan open '
+       <em>
+         'or'
+       ' a close tag:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' HTMLParser:'
+           <span>
+             <a>
+             <span>
+               'def'
+             ' add_tag('
+             <span>
+               'self'
+             ', tag):'
+           <span>
+             <a>
+             <span>
+               'if'
+             ' tag.startswith('
+             <span>
+               '&quot;/&quot;'
+             '):'
+           <span>
+             <a>
+             <span>
+               '# ...'
+           <span>
+             <a>
+             <span>
+               'else'
+             ':'
+           <span>
+             <a>
+             <span>
+               '# ...'
+     <p>
+       'An open tag adds an unfinished node to the end of the list:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'def'
+             ' add_tag('
+             <span>
+               'self'
+             ', tag):'
+           <span>
+             <a>
+             <span>
+               '# ...'
+           <span>
+             <a>
+             <span>
+               'else'
+             ':'
+           <span>
+             <a>
+             '        parent '
+             <span>
+               '='
+             <span>
+               'self'
+             '.unfinished['
+             <span>
+               '-'
+             <span>
+               '1'
+             ']'
+           <span>
+             <a>
+             '        node '
+             <span>
+               '='
+             ' Element(tag, parent)'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.unfinished.append(node)'
+     <p>
+       'A close tag instead finishes the last unfinished node by adding it to\nthe previous unfinished node in the list:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'def'
+             ' add_tag('
+             <span>
+               'self'
+             ', tag):'
+           <span>
+             <a>
+             <span>
+               'if'
+             ' tag.startswith('
+             <span>
+               '&quot;/&quot;'
+             '):'
+           <span>
+             <a>
+             '        node '
+             <span>
+               '='
+             <span>
+               'self'
+             '.unfinished.pop()'
+           <span>
+             <a>
+             '        parent '
+             <span>
+               '='
+             <span>
+               'self'
+             '.unfinished['
+             <span>
+               '-'
+             <span>
+               '1'
+             ']'
+           <span>
+             <a>
+             '        parent.children.append(node)'
+           <span>
+             <a>
+             <span>
+               '# ...'
+     <p>
+       'Once the parser is done, it turns our incomplete tree into a complete\ntree by just finishing any unfinished nodes:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' HTMLParser:'
+           <span>
+             <a>
+             <span>
+               'def'
+             ' finish('
+             <span>
+               'self'
+             '):'
+           <span>
+             <a>
+             <span>
+               'while'
+             <span>
+               'len'
+             '('
+             <span>
+               'self'
+             '.unfinished) '
+             <span>
+               '&gt;'
+             <span>
+               '1'
+             ':'
+           <span>
+             <a>
+             '            node '
+             <span>
+               '='
+             <span>
+               'self'
+             '.unfinished.pop()'
+           <span>
+             <a>
+             '            parent '
+             <span>
+               '='
+             <span>
+               'self'
+             '.unfinished['
+             <span>
+               '-'
+             <span>
+               '1'
+             ']'
+           <span>
+             <a>
+             '            parent.children.append(node)'
+           <span>
+             <a>
+             <span>
+               'return'
+             <span>
+               'self'
+             '.unfinished.pop()'
+     <p>
+       'This is '
+       <em>
+         'almost'
+       ' a complete parser, but it doesn’t quite work\nat the beginning and end of the document. The very first open tag is an\nedge case without a parent:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'def'
+             ' add_tag('
+             <span>
+               'self'
+             ', tag):'
+           <span>
+             <a>
+             <span>
+               '# ...'
+           <span>
+             <a>
+             <span>
+               'else'
+             ':'
+           <span>
+             <a>
+             '        parent '
+             <span>
+               '='
+             <span>
+               'self'
+             '.unfinished['
+             <span>
+               '-'
+             <span>
+               '1'
+             '] '
+             <span>
+               'if'
+             <span>
+               'self'
+             '.unfinished '
+             <span>
+               'else'
+             <span>
+               'None'
+           <span>
+             <a>
+             <span>
+               '# ...'
+     <p>
+       'The very last tag is also an edge case, because there’s no unfinished\nnode to add it to:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'def'
+             ' add_tag('
+             <span>
+               'self'
+             ', tag):'
+           <span>
+             <a>
+             <span>
+               'if'
+             ' tag.startswith('
+             <span>
+               '&quot;/&quot;'
+             '):'
+           <span>
+             <a>
+             <span>
+               'if'
+             <span>
+               'len'
+             '('
+             <span>
+               'self'
+             '.unfinished) '
+             <span>
+               '=='
+             <span>
+               '1'
+             ': '
+             <span>
+               'return'
+           <span>
+             <a>
+             <span>
+               '# ...'
+     <p>
+       'Ok, that’s all done. Let’s test our parser out and see how well it\nworks!'
+     <div>
+       <p>
+         'The ill-considered JavaScript '
+         <code>
+           'document.write'
+         ' method\nallows JavaScript to modify the HTML source code while it’s being\nparsed! This is actually a '
+         <a>
+           'bad\nidea'
+         '. An implementation of '
+         <code>
+           'document.write'
+         ' must have the\nHTML parser stop to execute JavaScript, but that slows down requests for\nimages, CSS, and JavaScript used later in the page. To solve this,\nmodern browsers use '
+         <a>
+           'speculative\nparsing'
+         ' to start loading additional resources even before parsing is\ndone.'
+     <h1>
+       'Debugging a Parser'
+     <p>
+       'How do we know our parser does the right thing—that it builds the\nright tree? Well the place to start is '
+       <em>
+         'seeing'
+       ' the tree it\nproduces. We can do that with a quick, recursive pretty-printer:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'def'
+             ' print_tree(node, indent'
+             <span>
+               '='
+             <span>
+               '0'
+             '):'
+           <span>
+             <a>
+             <span>
+               'print'
+             '('
+             <span>
+               '&quot; &quot;'
+             <span>
+               '*'
+             ' indent, node)'
+           <span>
+             <a>
+             <span>
+               'for'
+             ' child '
+             <span>
+               'in'
+             ' node.children:'
+           <span>
+             <a>
+             '        print_tree(child, indent '
+             <span>
+               '+'
+             <span>
+               '2'
+             ')'
+     <p>
+       'Here we’re printing each node in the tree, and using indentation to\nshow the tree structure. Since we need to print each node, it’s worth\ntaking the time to give them a nice printed form, which in Python means\ndefining the '
+       <code>
+         '__repr__'
+       ' function:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' Text:'
+           <span>
+             <a>
+             <span>
+               'def'
+             <span>
+               '__repr__'
+             '('
+             <span>
+               'self'
+             '):'
+           <span>
+             <a>
+             <span>
+               'return'
+             <span>
+               'repr'
+             '('
+             <span>
+               'self'
+             '.text)'
+           <span>
+             <a>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' Element:'
+           <span>
+             <a>
+             <span>
+               'def'
+             <span>
+               '__repr__'
+             '('
+             <span>
+               'self'
+             '):'
+           <span>
+             <a>
+             <span>
+               'return'
+             <span>
+               '&quot;&lt;&quot;'
+             <span>
+               '+'
+             <span>
+               'self'
+             '.tag '
+             <span>
+               '+'
+             <span>
+               '&quot;&gt;&quot;'
+     <p>
+       'In general it’s a good idea to define '
+       <code>
+         '__repr__'
+       ' methods\nfor any data objects, and to have those '
+       <code>
+         '__repr__'
+       ' methods\nprint all the relevant fields.'
+     <p>
+       'Try this out on '
+       <a>
+         'the\nweb page'
+       ' corresponding to this chapter, parsing the HTML source code\nand then calling '
+       <code>
+         'print_tree'
+       ' to visualize it:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             'body '
+             <span>
+               '='
+             ' URL(sys.argv['
+             <span>
+               '1'
+             ']).request()'
+           <span>
+             <a>
+             'nodes '
+             <span>
+               '='
+             ' HTMLParser(body).parse()'
+           <span>
+             <a>
+             'print_tree(nodes)'
+     <p>
+       'You’ll see something like this at the beginning:'
+     <pre>
+       <code>
+         ' &lt;!doctype html&gt;\n   &#39;\\n&#39;\n   &lt;html lang=&quot;en-US&quot; xml:lang=&quot;en-US&quot;&gt;\n     &#39;\\n&#39;\n     &lt;head&gt;\n       &#39;\\n  &#39;\n       &lt;meta charset=&quot;utf-8&quot; /&gt;'
+     <p>
+       'Immediately a couple of things stand out. Let’s start at the top,\nwith the '
+       <code>
+         '&lt;!doctype html&gt;'
+       ' tag.'
+     <p>
+       'This special tag, called a '
+       <a>
+         'doctype'
+       ',\nis always the very first thing in an HTML document. But it’s not really\nan element at all, nor is it supposed to have a close tag. Our browser\nwon’t be using the doctype for anything, so it’s best to throw it\naway:'
+       <span>
+         <span>
+           'Real browsers use\ndoctypes to switch between standards-compliant and legacy parsing and\nlayout modes.'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'def'
+             ' add_tag('
+             <span>
+               'self'
+             ', tag):'
+           <span>
+             <a>
+             <span>
+               'if'
+             ' tag.startswith('
+             <span>
+               '&quot;!&quot;'
+             '): '
+             <span>
+               'return'
+           <span>
+             <a>
+             <span>
+               '# ...'
+     <p>
+       'This ignores all tags that start with an exclamation mark, which not\nonly throws out doctype declarations but also comments, which in HTML\nare written '
+       <code>
+         '&lt;!-- comment text --&gt;'
+       '.'
+     <p>
+       'Just throwing out doctypes isn’t quite enough though—if you run your\nparser now, it will crash. That’s because after the doctype comes a\nnewline, which our parser treats as text and tries to insert into the\ntree. Except there isn’t a tree, since the parser hasn’t seen any open\ntags. For simplicity, let’s just have our browser skip whitespace-only\ntext nodes to side-step the problem:'
+       <span>
+         <span>
+           'Real browsers retain whitespace to correctly render\n'
+           <code>
+             'make&lt;span&gt;&lt;/span&gt;up'
+           ' as one word and\n'
+           <code>
+             'make&lt;span&gt; &lt;/span&gt;up'
+           ' as two. Our browser won’t.\nPlus, ignoring whitespace simplifies later chapters by avoiding a\nspecial case for whitespace-only text tags.'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'def'
+             ' add_text('
+             <span>
+               'self'
+             ', text):'
+           <span>
+             <a>
+             <span>
+               'if'
+             ' text.isspace(): '
+             <span>
+               'return'
+           <span>
+             <a>
+             <span>
+               '# ...'
+     <p>
+       'The first part of the parsed HTML tree for the\n'
+       <code>
+         'browser.engineering'
+       ' home page now looks something like\nthis:'
+     <pre>
+       <code>
+         ' &lt;html lang=&quot;en-US&quot; xml:lang=&quot;en-US&quot;&gt;\n   &lt;head&gt;\n     &lt;meta charset=&quot;utf-8&quot; /=&quot;&quot;&gt;\n       &lt;link rel=&quot;prefetch&quot; ...&gt;\n         &lt;link rel=&quot;prefetch&quot; ...&gt;'
+     <p>
+       'Our next problem: why’s everything so deeply indented? Why aren’t\nthese open elements ever closed?'
+     <div>
+       <p>
+         'In SGML, document type declarations contained a URL which defined the\nvalid tags, and in older versions of HTML that was also recommended.\nBrowsers do use the absence of a document type declaration to '
+         <a>
+           'identify'
+         '\nvery old, pre-SGML versions of HTML,'
+         <span>
+           <span>
+             'There’s also this crazy thing called “'
+             <a>
+               'almost standards'
+             '” or “limited\nquirks” mode, due to a backward-incompatible change in table cell\nvertical layout. Yes. I don’t need to make these up!'
+         ' but\ndon’t use the URL, so '
+         <code>
+           '&lt;!doctype html&gt;'
+         ' is the best\ndocument type declaration for modern HTML.'
+     <h1>
+       'Self-closing Tags'
+     <p>
+       'Elements like '
+       <code>
+         '&lt;meta&gt;'
+       ' and '
+       <code>
+         '&lt;link&gt;'
+       '\nare what are called self-closing: these tags don’t surround content, so\nyou don’t ever write '
+       <code>
+         '&lt;/meta&gt;'
+       ' or\n'
+       <code>
+         '&lt;/link&gt;'
+       '. Our parser needs special support for them.\nIn HTML, there’s a '
+       <a>
+         'specific\nlist'
+       ' of these self-closing tags (the specification calls them “void”\ntags):'
+       <span>
+         <span>
+           'A lot of these\ntags are obscure. Browsers also support some additional, obsolete\nself-closing tags not listed here, like\n'
+           <code>
+             'keygen'
+           '.'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             'SELF_CLOSING_TAGS '
+             <span>
+               '='
+             ' ['
+           <span>
+             <a>
+             <span>
+               '&quot;area&quot;'
+             ', '
+             <span>
+               '&quot;base&quot;'
+             ', '
+             <span>
+               '&quot;br&quot;'
+             ', '
+             <span>
+               '&quot;col&quot;'
+             ', '
+             <span>
+               '&quot;embed&quot;'
+             ', '
+             <span>
+               '&quot;hr&quot;'
+             ', '
+             <span>
+               '&quot;img&quot;'
+             ', '
+             <span>
+               '&quot;input&quot;'
+             ','
+           <span>
+             <a>
+             <span>
+               '&quot;link&quot;'
+             ', '
+             <span>
+               '&quot;meta&quot;'
+             ', '
+             <span>
+               '&quot;param&quot;'
+             ', '
+             <span>
+               '&quot;source&quot;'
+             ', '
+             <span>
+               '&quot;track&quot;'
+             ', '
+             <span>
+               '&quot;wbr&quot;'
+             ','
+           <span>
+             <a>
+             ']'
+     <p>
+       'Our parser needs to auto-close tags from this list:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'def'
+             ' add_tag('
+             <span>
+               'self'
+             ', tag):'
+           <span>
+             <a>
+             <span>
+               '# ...'
+           <span>
+             <a>
+             <span>
+               'elif'
+             ' tag '
+             <span>
+               'in'
+             <span>
+               'self'
+             '.SELF_CLOSING_TAGS:'
+           <span>
+             <a>
+             '        parent '
+             <span>
+               '='
+             <span>
+               'self'
+             '.unfinished['
+             <span>
+               '-'
+             <span>
+               '1'
+             ']'
+           <span>
+             <a>
+             '        node '
+             <span>
+               '='
+             ' Element(tag, parent)'
+           <span>
+             <a>
+             '        parent.children.append(node)'
+     <p>
+       'This code looks right, but it doesn’t quite work right. Why not?\nBecause our parser is looking for a tag named '
+       <code>
+         'meta'
+       ', but\nit’s finding a tag named “'
+       <code>
+         'meta name=...'
+       '”. The self-closing\ncode isn’t triggered because the '
+       <code>
+         '&lt;meta&gt;'
+       ' tag has\nattributes.'
+     <p>
+       'HTML attributes add information about an element; open tags can have\nany number of attributes. Attribute values can be quoted, unquoted, or\nomitted entirely. Let’s focus on basic attribute support, ignoring\nvalues that contain whitespace, which are a little complicated.'
+     <p>
+       'Since we’re not handling whitespace in values, we can split on\nwhitespace to get the tag name and the attribute–value pairs:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' HTMLParser:'
+           <span>
+             <a>
+             <span>
+               'def'
+             ' get_attributes('
+             <span>
+               'self'
+             ', text):'
+           <span>
+             <a>
+             '        parts '
+             <span>
+               '='
+             ' text.split()'
+           <span>
+             <a>
+             '        tag '
+             <span>
+               '='
+             ' parts['
+             <span>
+               '0'
+             '].casefold()'
+           <span>
+             <a>
+             '        attributes '
+             <span>
+               '='
+             ' {}'
+           <span>
+             <a>
+             <span>
+               'for'
+             ' attrpair '
+             <span>
+               'in'
+             ' parts['
+             <span>
+               '1'
+             ':]:'
+           <span>
+             <a>
+             <span>
+               '# ...'
+           <span>
+             <a>
+             <span>
+               'return'
+             ' tag, attributes'
+     <p>
+       'HTML tag names are case insensitive, as by the way are attribute\nnames, so I case-fold them.'
+       <span>
+         <span>
+           'Lower-casing text is the '
+           <a>
+             'wrong way'
+           ' to\ndo case-insensitive comparisons in languages like Cherokee. In HTML\nspecifically, tag names only use the ASCII characters so lower-casing\nthem would be sufficient, but I’m using Python’s '
+           <code>
+             'casefold'
+           '\nfunction because it’s a good habit to get into.'
+       ' Then,\ninside the loop, I split each attribute–value pair into a name and a\nvalue. The easiest case is an unquoted attribute, where an equal sign\nseparates the two:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'def'
+             ' get_attributes('
+             <span>
+               'self'
+             ', text):'
+           <span>
+             <a>
+             <span>
+               '# ...'
+           <span>
+             <a>
+             <span>
+               'for'
+             ' attrpair '
+             <span>
+               'in'
+             ' parts['
+             <span>
+               '1'
+             ':]:'
+           <span>
+             <a>
+             <span>
+               'if'
+             <span>
+               '&quot;=&quot;'
+             <span>
+               'in'
+             ' attrpair:'
+           <span>
+             <a>
+             '            key, value '
+             <span>
+               '='
+             ' attrpair.split('
+             <span>
+               '&quot;=&quot;'
+             ', '
+             <span>
+               '1'
+             ')'
+           <span>
+             <a>
+             '            attributes[key.casefold()] '
+             <span>
+               '='
+             ' value'
+           <span>
+             <a>
+             <span>
+               '# ...'
+     <p>
+       'The value can also be omitted, like in\n'
+       <code>
+         '&lt;input disabled&gt;'
+       ', in which case the attribute value\ndefaults to the empty string:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'for'
+             ' attrpair '
+             <span>
+               'in'
+             ' parts['
+             <span>
+               '1'
+             ':]:'
+           <span>
+             <a>
+             <span>
+               '# ...'
+           <span>
+             <a>
+             <span>
+               'else'
+             ':'
+           <span>
+             <a>
+             '        attributes[attrpair.casefold()] '
+             <span>
+               '='
+             <span>
+               '&quot;&quot;'
+     <p>
+       'Finally, the value can be quoted, in which case the quotes have to be\nstripped out:'
+       <span>
+         <span>
+           'Quoted\nattributes allow whitespace between the quotes. Parsing that properly\nrequires something like a finite state machine instead of just splitting\non whitespace.'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'if'
+             <span>
+               '&quot;=&quot;'
+             <span>
+               'in'
+             ' attrpair:'
+           <span>
+             <a>
+             <span>
+               '# ...'
+           <span>
+             <a>
+             <span>
+               'if'
+             <span>
+               'len'
+             '(value) '
+             <span>
+               '&gt;'
+             <span>
+               '2'
+             <span>
+               'and'
+             ' value['
+             <span>
+               '0'
+             '] '
+             <span>
+               'in'
+             ' ['
+             <span>
+               '&quot;&#39;&quot;'
+             ', '
+             <span>
+               '&quot;'
+             <span>
+               '\\&quot;'
+             <span>
+               '&quot;'
+             ']:'
+           <span>
+             <a>
+             '        value '
+             <span>
+               '='
+             ' value['
+             <span>
+               '1'
+             ':'
+             <span>
+               '-'
+             <span>
+               '1'
+             ']'
+           <span>
+             <a>
+             <span>
+               '# ...'
+     <p>
+       'We’ll store these attributes inside '
+       <code>
+         'Element'
+       's:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' Element:'
+           <span>
+             <a>
+             <span>
+               'def'
+             <span>
+               '__init__'
+             '('
+             <span>
+               'self'
+             ', tag, attributes, parent):'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.tag '
+             <span>
+               '='
+             ' tag'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.attributes '
+             <span>
+               '='
+             ' attributes'
+           <span>
+             <a>
+             <span>
+               '# ...'
+     <p>
+       'That means we’ll need to call '
+       <code>
+         'get_attributes'
+       ' at the top\nof '
+       <code>
+         'add_tag'
+       ' to get the '
+       <code>
+         'attributes'
+       ' we need to\nconstruct an '
+       <code>
+         'Element'
+       '.'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'def'
+             ' add_tag('
+             <span>
+               'self'
+             ', tag):'
+           <span>
+             <a>
+             '    tag, attributes '
+             <span>
+               '='
+             <span>
+               'self'
+             '.get_attributes(tag)'
+           <span>
+             <a>
+             <span>
+               '# ...'
+     <p>
+       'Remember to use '
+       <code>
+         'tag'
+       ' and '
+       <code>
+         'attribute'
+       ' instead\nof '
+       <code>
+         'text'
+       ' in '
+       <code>
+         'add_tag'
+       ', and try your parser\nagain:'
+     <pre>
+       <code>
+         ' &lt;html&gt;\n    &lt;head&gt;\n      &lt;meta&gt;\n      &lt;link&gt;\n      &lt;link&gt;\n      &lt;link&gt;\n      &lt;link&gt;\n      &lt;link&gt;\n      &lt;meta&gt;'
+     <p>
+       'It’s close! Yes, if you print the attributes, you’ll see that\nattributes with whitespace (like '
+       <code>
+         'author'
+       ' on one of the\n'
+       <code>
+         'meta'
+       ' tags) are mis-parsed as multiple attributes, and the\nfinal slash on the self-closing tags is incorrectly treated as an extra\nattribute. A better parser would fix these issues. But let’s instead\nleave our parser as is—these issues aren’t going to be a problem for the\nbrowser we’re building—and move on to integrating it with our\nbrowser.'
+     <div>
+       <p>
+         'Putting a slash at the end of self-closing tags, like\n'
+         <code>
+           '&lt;br/&gt;'
+         ', became fashionable when '
+         <a>
+           'XHTML'
+         ' looked like it might\nreplace HTML, and old-timers like me never broke the habit. But unlike\nin '
+         <a>
+           'XML'
+         ', in HTML\nself-closing tags are identified by name, not by some special syntax, so\nthe slash is optional.'
+     <h1>
+       'Using the Node Tree'
+     <p>
+       'Right now, the '
+       <code>
+         'Layout'
+       ' class works token by token; we now\nwant it to go node by node instead. So let’s separate the old\n'
+       <code>
+         'token'
+       ' method into two parts: all the cases for open tags\nwill go into a new '
+       <code>
+         'open_tag'
+       ' method and all the cases for\nclose tags will go into a new '
+       <code>
+         'close_tag'
+       ' method:'
+       <span>
+         <span>
+           'The case for text tokens is no\nlonger needed because our browser can just call the existing\n'
+           <code>
+             'add_text'
+           ' method directly.'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' Layout:'
+           <span>
+             <a>
+             <span>
+               'def'
+             ' open_tag('
+             <span>
+               'self'
+             ', tag):'
+           <span>
+             <a>
+             <span>
+               'if'
+             ' tag '
+             <span>
+               '=='
+             <span>
+               '&quot;i&quot;'
+             ':'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.style '
+             <span>
+               '='
+             <span>
+               '&quot;italic&quot;'
+           <span>
+             <a>
+             <span>
+               '# ...'
+           <span>
+             <a>
+           <span>
+             <a>
+             <span>
+               'def'
+             ' close_tag('
+             <span>
+               'self'
+             ', tag):'
+           <span>
+             <a>
+             <span>
+               'if'
+             ' tag '
+             <span>
+               '=='
+             <span>
+               '&quot;i&quot;'
+             ':'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.style '
+             <span>
+               '='
+             <span>
+               '&quot;roman&quot;'
+           <span>
+             <a>
+             <span>
+               '# ...'
+     <p>
+       'Now we need the '
+       <code>
+         'Layout'
+       ' object to walk the node tree,\ncalling '
+       <code>
+         'open_tag'
+       ', '
+       <code>
+         'close_tag'
+       ', and\n'
+       <code>
+         'text'
+       ' in the right order:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'def'
+             ' recurse('
+             <span>
+               'self'
+             ', tree):'
+           <span>
+             <a>
+             <span>
+               'if'
+             <span>
+               'isinstance'
+             '(tree, Text):'
+           <span>
+             <a>
+             <span>
+               'for'
+             ' word '
+             <span>
+               'in'
+             ' tree.text.split():'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.word(word)'
+           <span>
+             <a>
+             <span>
+               'else'
+             ':'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.open_tag(tree.tag)'
+           <span>
+             <a>
+             <span>
+               'for'
+             ' child '
+             <span>
+               'in'
+             ' tree.children:'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.recurse(child)'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.close_tag(tree.tag)'
+     <p>
+       'The '
+       <code>
+         'Layout'
+       ' constructor can now call '
+       <code>
+         'recurse'
+       '\ninstead of looping through the list of tokens. We’ll also need the\nbrowser to construct the node tree, like this:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' Browser:'
+           <span>
+             <a>
+             <span>
+               'def'
+             ' load('
+             <span>
+               'self'
+             ', url):'
+           <span>
+             <a>
+             '        body '
+             <span>
+               '='
+             ' url.request()'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.nodes '
+             <span>
+               '='
+             ' HTMLParser(body).parse()'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.display_list '
+             <span>
+               '='
+             ' Layout('
+             <span>
+               'self'
+             '.nodes).display_list'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.draw()'
+     <p>
+       'Run it—the browser should now use the parsed HTML tree.'
+     <div>
+       <p>
+         'The '
+         <code>
+           'doctype'
+         ' syntax is a form of versioning—declaring\nwhich version of HTML the web page is using. But in fact, the\n'
+         <code>
+           'html'
+         ' value for '
+         <code>
+           'doctype'
+         ' signals not just a\nparticular version of HTML, but more generally the '
+         <a>
+           <em>
+             'HTML living\nstandard'
+         '.'
+         <span>
+           <span>
+             'It is\nnot expected that any new '
+             <code>
+               'doctype'
+             ' version for HTML will\never be added again.'
+         ' It’s called a “living standard”\nbecause it changes all the time as features are added. The mechanism for\nthese changes is simply browsers shipping new features, not any change\nto the “version” of HTML. In general, the web is an '
+         <em>
+           'unversioned\nplatform'
+         '—new features are often added as enhancements, but only so\nlong as they don’t break existing ones.'
+         <span>
+           <span>
+             'Features can be removed, but\nonly if they stop being used by the vast majority of sites. This makes\nit very hard to remove web features compared with other\nplatforms.'
+     <h1>
+       'Handling Author Errors'
+     <p>
+       'The parser now handles HTML pages correctly—at least when the HTML is\nwritten by the sorts of goody-two-shoes programmers who remember the\n'
+       <code>
+         '&lt;head&gt;'
+       ' tag, close every open tag, and make their bed\nin the morning. Mere mortals lack such discipline and so browsers also\nhave to handle broken, confusing, '
+       <code>
+         'head'
+       'less HTML. In fact,\nmodern HTML parsers are capable of transforming '
+       <em>
+         'any'
+       ' string of\ncharacters into an HTML tree, no matter how confusing the markup.'
+       <span>
+         <span>
+           'Yes, it’s crazy, and for a few\nyears in the early 2000s the W3C tried to '
+           <a>
+             'do away with it'
+           '. They\nfailed.'
+     <p>
+       'The full algorithm is, as you might expect, complicated beyond\nbelief, with dozens of ever-more-special cases forming a taxonomy of\nhuman error, but one of its nicer features is '
+       <em>
+         'implicit'
+       ' tags.\nNormally, an HTML document starts with a familiar boilerplate:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               '&lt;!doctype '
+             'html'
+             <span>
+               '&gt;'
+           <span>
+             <a>
+             <span>
+               '&lt;html&gt;'
+           <span>
+             <a>
+             <span>
+               '&lt;head&gt;'
+           <span>
+             <a>
+             <span>
+               '&lt;/head&gt;'
+           <span>
+             <a>
+             <span>
+               '&lt;body&gt;'
+           <span>
+             <a>
+             <span>
+               '&lt;/body&gt;'
+           <span>
+             <a>
+             <span>
+               '&lt;/html&gt;'
+     <p>
+       'In reality, '
+       <em>
+         'all six'
+       ' of these tags, except the doctype, are\noptional: browsers insert them automatically when the web page omits\nthem. Let’s insert implicit tags in our browser via a new\n'
+       <code>
+         'implicit_tags'
+       ' function. We’ll want to call it in both\n'
+       <code>
+         'add_text'
+       ' and '
+       <code>
+         'add_tag'
+       ':'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' HTMLParser:'
+           <span>
+             <a>
+             <span>
+               'def'
+             ' add_text('
+             <span>
+               'self'
+             ', text):'
+           <span>
+             <a>
+             <span>
+               'if'
+             ' text.isspace(): '
+             <span>
+               'return'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.implicit_tags('
+             <span>
+               'None'
+             ')'
+           <span>
+             <a>
+             <span>
+               '# ...'
+           <span>
+             <a>
+           <span>
+             <a>
+             <span>
+               'def'
+             ' add_tag('
+             <span>
+               'self'
+             ', tag):'
+           <span>
+             <a>
+             '        tag, attributes '
+             <span>
+               '='
+             <span>
+               'self'
+             '.get_attributes(tag)'
+           <span>
+             <a>
+             <span>
+               'if'
+             ' tag.startswith('
+             <span>
+               '&quot;!&quot;'
+             '): '
+             <span>
+               'return'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.implicit_tags(tag)'
+           <span>
+             <a>
+             <span>
+               '# ...'
+     <p>
+       'Note that '
+       <code>
+         'implicit_tags'
+       ' isn’t called for the ignored\nwhitespace and doctypes. Let’s also call it in '
+       <code>
+         'finish'
+       ', to\nmake sure that an '
+       <code>
+         '&lt;html&gt;'
+       ' and\n'
+       <code>
+         '&lt;body&gt;'
+       ' tag are created even for empty strings:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' HTMLParser:'
+           <span>
+             <a>
+             <span>
+               'def'
+             ' finish('
+             <span>
+               'self'
+             '):'
+           <span>
+             <a>
+             <span>
+               'if'
+             <span>
+               'not'
+             <span>
+               'self'
+             '.unfinished:'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.implicit_tags('
+             <span>
+               'None'
+             ')'
+           <span>
+             <a>
+             <span>
+               '# ...'
+     <p>
+       'The argument to '
+       <code>
+         'implicit_tags'
+       ' is the tag name (or\n'
+       <code>
+         'None'
+       ' for text nodes), which we’ll compare to the list of\nunfinished tags to determine what’s been omitted:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' HTMLParser:'
+           <span>
+             <a>
+             <span>
+               'def'
+             ' implicit_tags('
+             <span>
+               'self'
+             ', tag):'
+           <span>
+             <a>
+             <span>
+               'while'
+             <span>
+               'True'
+             ':'
+           <span>
+             <a>
+             '            open_tags '
+             <span>
+               '='
+             ' [node.tag '
+             <span>
+               'for'
+             ' node '
+             <span>
+               'in'
+             <span>
+               'self'
+             '.unfinished]'
+           <span>
+             <a>
+             <span>
+               '# ...'
+     <p>
+       <code>
+         'implicit_tags'
+       ' has a loop because more than one tag could\nhave been omitted in a row; every iteration around the loop will add\njust one. To determine which implicit tag to add, if any, requires\nexamining the open tags and the tag being inserted.'
+     <p>
+       'Let’s start with the easiest case, the implicit\n'
+       <code>
+         '&lt;html&gt;'
+       ' tag. An implicit '
+       <code>
+         '&lt;html&gt;'
+       ' tag\nis necessary if the first tag in the document is something other than\n'
+       <code>
+         '&lt;html&gt;'
+       ':'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'while'
+             <span>
+               'True'
+             ':'
+           <span>
+             <a>
+             <span>
+               '# ...'
+           <span>
+             <a>
+             <span>
+               'if'
+             ' open_tags '
+             <span>
+               '=='
+             ' [] '
+             <span>
+               'and'
+             ' tag '
+             <span>
+               '!='
+             <span>
+               '&quot;html&quot;'
+             ':'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.add_tag('
+             <span>
+               '&quot;html&quot;'
+             ')'
+     <p>
+       'Both '
+       <code>
+         '&lt;head&gt;'
+       ' and '
+       <code>
+         '&lt;body&gt;'
+       ' can also\nbe omitted, but to figure out which it is we need to look at which tag\nis being added:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'while'
+             <span>
+               'True'
+             ':'
+           <span>
+             <a>
+             <span>
+               '# ...'
+           <span>
+             <a>
+             <span>
+               'elif'
+             ' open_tags '
+             <span>
+               '=='
+             ' ['
+             <span>
+               '&quot;html&quot;'
+             '] '
+             <span>
+               '\\'
+           <span>
+             <a>
+             <span>
+               'and'
+             ' tag '
+             <span>
+               'not'
+             <span>
+               'in'
+             ' ['
+             <span>
+               '&quot;head&quot;'
+             ', '
+             <span>
+               '&quot;body&quot;'
+             ', '
+             <span>
+               '&quot;/html&quot;'
+             ']:'
+           <span>
+             <a>
+             <span>
+               'if'
+             ' tag '
+             <span>
+               'in'
+             <span>
+               'self'
+             '.HEAD_TAGS:'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.add_tag('
+             <span>
+               '&quot;head&quot;'
+             ')'
+           <span>
+             <a>
+             <span>
+               'else'
+             ':'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.add_tag('
+             <span>
+               '&quot;body&quot;'
+             ')'
+     <p>
+       'Here, '
+       <code>
+         'HEAD_TAGS'
+       ' lists the tags that you’re supposed to\nput into the '
+       <code>
+         '&lt;head&gt;'
+       ' element:'
+       <span>
+         <span>
+           'The\n'
+           <code>
+             '&lt;script&gt;'
+           ' tag can go in either the head or the body\nsection, but it goes into the head by default.'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'class'
+             ' HTMLParser:'
+           <span>
+             <a>
+             '    HEAD_TAGS '
+             <span>
+               '='
+             ' ['
+           <span>
+             <a>
+             <span>
+               '&quot;base&quot;'
+             ', '
+             <span>
+               '&quot;basefont&quot;'
+             ', '
+             <span>
+               '&quot;bgsound&quot;'
+             ', '
+             <span>
+               '&quot;noscript&quot;'
+             ','
+           <span>
+             <a>
+             <span>
+               '&quot;link&quot;'
+             ', '
+             <span>
+               '&quot;meta&quot;'
+             ', '
+             <span>
+               '&quot;title&quot;'
+             ', '
+             <span>
+               '&quot;style&quot;'
+             ', '
+             <span>
+               '&quot;script&quot;'
+             ','
+           <span>
+             <a>
+             '    ]'
+     <p>
+       'Note that if both the '
+       <code>
+         '&lt;html&gt;'
+       ' and\n'
+       <code>
+         '&lt;head&gt;'
+       ' tags are omitted, '
+       <code>
+         'implicit_tags'
+       '\nis going to insert both of them by going around the loop twice. In the\nfirst iteration '
+       <code>
+         'open_tags'
+       ' is '
+       <code>
+         '[]'
+       ', so the code\nadds an '
+       <code>
+         '&lt;html&gt;'
+       ' tag; then, in the second iteration,\n'
+       <code>
+         'open_tags'
+       ' is '
+       <code>
+         '["html"]'
+       ', so it adds a\n'
+       <code>
+         '&lt;head&gt;'
+       ' tag.'
+       <span>
+         <span>
+           'These '
+           <code>
+             'add_tag'
+           ' methods themselves call\n'
+           <code>
+             'implicit_tags'
+           ', which means you can get into an infinite\nloop if you forget a case. I’ve been careful to make sure that every tag\nadded by '
+           <code>
+             'implicit_tags'
+           ' doesn’t itself trigger more implicit\ntags.'
+     <p>
+       'Finally, the '
+       <code>
+         '&lt;/head&gt;'
+       ' tag can also be implicit if\nthe parser is inside the '
+       <code>
+         '&lt;head&gt;'
+       ' and sees an element\nthat’s supposed to go in the '
+       <code>
+         '&lt;body&gt;'
+       ':'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'while'
+             <span>
+               'True'
+             ':'
+           <span>
+             <a>
+             <span>
+               '# ...'
+           <span>
+             <a>
+             <span>
+               'elif'
+             ' open_tags '
+             <span>
+               '=='
+             ' ['
+             <span>
+               '&quot;html&quot;'
+             ', '
+             <span>
+               '&quot;head&quot;'
+             '] '
+             <span>
+               'and'
+             <span>
+               '\\'
+           <span>
+             <a>
+             '         tag '
+             <span>
+               'not'
+             <span>
+               'in'
+             ' ['
+             <span>
+               '&quot;/head&quot;'
+             '] '
+             <span>
+               '+'
+             <span>
+               'self'
+             '.HEAD_TAGS:'
+           <span>
+             <a>
+             <span>
+               'self'
+             '.add_tag('
+             <span>
+               '&quot;/head&quot;'
+             ')'
+     <p>
+       'Technically, the '
+       <code>
+         '&lt;/body&gt;'
+       ' and\n'
+       <code>
+         '&lt;/html&gt;'
+       ' tags can also be implicit. But since our\n'
+       <code>
+         'finish'
+       ' function already closes any unfinished tags, that\ndoesn’t need any extra code. So all that’s left for\n'
+       <code>
+         'implicit_tags'
+       ' is to exit out of the loop:'
+     <div>
+       <pre>
+         <code>
+           <span>
+             <a>
+             <span>
+               'while'
+             <span>
+               'True'
+             ':'
+           <span>
+             <a>
+             <span>
+               '# ...'
+           <span>
+             <a>
+             <span>
+               'else'
+             ':'
+           <span>
+             <a>
+             <span>
+               'break'
+     <p>
+       'Of course, there are more rules for handling malformed HTML:\nformatting tags, nested paragraphs, embedded Scalable Vector Graphics\n(SVG) and MathML, and all sorts of other complexity. Each has\ncomplicated rules abounding with edge cases. But let’s end our\ndiscussion of handling author errors here.'
+     <p>
+       'The rules for malformed HTML may seem arbitrary, and they are: they\nevolved over years of trying to guess what people “meant” when they\nwrote that HTML, and are now codified in the '
+       <a>
+         'HTML parsing\nstandard'
+       '. Of course, sometimes these rules “guess” wrong—but as so\noften happens on the web, it’s more important that every browser does\nthe '
+       <em>
+         'same'
+       ' thing, rather than each trying to guess what the\n'
+       <em>
+         'right'
+       ' thing is.'
+     <p>
+       'And now for the payoff! Figure 3 shows a screenshot of '
+       <a>
+         'this book’s website'
+       ', loaded in\nour own browser.'
+       <span>
+         <span>
+           'To be\nfair, it actually looks about the same with the Chapter 3\nbrowser.'
+     <div>
+       <p>
+         <img>
+         <br>
+     <div>
+       <p>
+         'Thanks to implicit tags, you can mostly skip the\n'
+         <code>
+           '&lt;html&gt;'
+         ', '
+         <code>
+           '&lt;body&gt;'
+         ', and\n'
+         <code>
+           '&lt;head&gt;'
+         ' elements, and they’ll be implicitly added back\nfor you. In fact, the HTML parser’s '
+         <a>
+           'many\nstates'
+         ' guarantee something stricter than that: every HTML document\nhas exactly one '
+         <code>
+           '&lt;head&gt;'
+         ' and one\n'
+         <code>
+           '&lt;body&gt;'
+         ', in the expected order.'
+         <span>
+           <span>
+             'At least, per document. An\nHTML file that uses frames or templates can have more than one\n'
+             <code>
+               '&lt;head&gt;'
+             ' and '
+             <code>
+               '&lt;body&gt;'
+             ', but they\ncorrespond to different documents.'
+     <h1>
+       'Summary'
+     <p>
+       'This chapter taught our browser that HTML is a tree, not just a flat\nlist of tokens. We added:'
+     <ul>
+       <li>
+         'a parser to transform HTML tokens to a tree;'
+       <li>
+         'code to recognize and handle attributes on elements;'
+       <li>
+         'automatic fixes for some malformed HTML documents;'
+       <li>
+         'a recursive layout algorithm to lay out an HTML tree.'
+     <p>
+       'The tree structure of HTML is essential to display visually complex\nweb pages, as we will see in the next chapter.'
+     <iframe>
+     <div>
+       <iframe>
+       <a>
+         'Close'
+     <h1>
+       'Outline'
+     <p>
+       'The complete set of functions, classes, and methods in our browser\nshould look something like this:'
+     <div>
+       <code>
+         <span>
+           'class'
+         ' URL:\n'
+         <code>
+           <span>
+             'def'
+           ' __init__(url)\n'
+         <code>
+           <span>
+             'def'
+           ' request()\n'
+       <code>
+         <span>
+           'class'
+         ' Text:\n'
+         <code>
+           <span>
+             'def'
+           ' __init__(text, parent)\n'
+         <code>
+           <span>
+             'def'
+           ' __repr__()\n'
+       <code>
+         <span>
+           'class'
+         ' Element:\n'
+         <code>
+           <span>
+             'def'
+           ' __init__(tag, attributes, parent)\n'
+         <code>
+           <span>
+             'def'
+           ' __repr__()\n'
+       <code>
+         <span>
+           'def'
+         ' print_tree(node, indent)\n'
+       <code>
+         <span>
+           'class'
+         ' HTMLParser:\n'
+         <code>
+           '    SELF_CLOSING_TAGS\n'
+         <code>
+           '    HEAD_TAGS\n'
+         <code>
+           <span>
+             'def'
+           ' __init__(body)\n'
+         <code>
+           <span>
+             'def'
+           ' parse()\n'
+         <code>
+           <span>
+             'def'
+           ' get_attributes(text)\n'
+         <code>
+           <span>
+             'def'
+           ' add_text(text)\n'
+         <code>
+           <span>
+             'def'
+           ' add_tag(tag)\n'
+         <code>
+           <span>
+             'def'
+           ' implicit_tags(tag)\n'
+         <code>
+           <span>
+             'def'
+           ' finish()\n'
+       <code>
+         'FONTS\n'
+       <code>
+         <span>
+           'def'
+         ' get_font(size, weight, style)\n'
+       <code>
+         'WIDTH, HEIGHT\n'
+       <code>
+         'HSTEP, VSTEP\n'
+       <code>
+         <span>
+           'class'
+         ' Layout:\n'
+         <code>
+           <span>
+             'def'
+           ' __init__(tree)\n'
+         <code>
+           <span>
+             'def'
+           ' recurse(tree)\n'
+         <code>
+           <span>
+             'def'
+           ' open_tag(tag)\n'
+         <code>
+           <span>
+             'def'
+           ' close_tag(tag)\n'
+         <code>
+           <span>
+             'def'
+           ' flush()\n'
+         <code>
+           <span>
+             'def'
+           ' word(word)\n'
+       <code>
+         'SCROLL_STEP\n'
+       <code>
+         <span>
+           'class'
+         ' Browser:\n'
+         <code>
+           <span>
+             'def'
+           ' __init__()\n'
+         <code>
+           <span>
+             'def'
+           ' draw()\n'
+         <code>
+           <span>
+             'def'
+           ' load(url)\n'
+         <code>
+           <span>
+             'def'
+           ' scrolldown(e)\n'
+     <h1>
+       'Exercises'
+     <p>
+       '4-1 '
+       <em>
+         'Comments'
+       '. Update the HTML lexer to support comments.\nComments in HTML begin with '
+       <code>
+         '&lt;!--'
+       ' and end with\n'
+       <code>
+         '--&gt;'
+       '. However, comments aren’t the same as tags: they can\ncontain any text, including left and right angle brackets. The lexer\nshould skip comments, not generating any token at all. Check: is\n'
+       <code>
+         '&lt;!--&gt;'
+       ' a comment, or does it just start one?'
+     <p>
+       '4-2 '
+       <em>
+         'Paragraphs'
+       '. It’s not clear what it would mean for one\nparagraph to contain another. Change the parser so that a document like\n'
+       <code>
+         '&lt;p&gt;hello&lt;p&gt;world&lt;/p&gt;'
+       ' results in two\nsibling paragraphs instead of one paragraph inside another; real\nbrowsers do this too. Do the same for '
+       <code>
+         '&lt;li&gt;'
+       ' elements,\nbut make sure nested lists are still possible.'
+     <p>
+       '4-3 '
+       <em>
+         'Scripts'
+       '. JavaScript code embedded in a\n'
+       <code>
+         '&lt;script&gt;'
+       ' tag uses the left angle bracket to mean\n“less than”. Modify your lexer so that the contents of\n'
+       <code>
+         '&lt;script&gt;'
+       ' tags are treated specially: no tags are\nallowed inside '
+       <code>
+         '&lt;script&gt;'
+       ', except the\n'
+       <code>
+         '&lt;/script&gt;'
+       ' close tag.'
+       <span>
+         <span>
+           'Technically it’s just\n'
+           <code>
+             '&lt;/script'
+           ' followed by a '
+           <a>
+             'space,\ntab, '
+             <code>
+               '\\v'
+             ', '
+             <code>
+               '\\r'
+             ', slash, or greater than sign'
+           '.\nIf you need to talk about '
+           <code>
+             '&lt;/script&gt;'
+           ' tags inside\nJavaScript code, you have to split it into multiple\nstrings.'
+     <p>
+       '4-4'
+       <em>
+         'Quoted attributes'
+       '. Quoted attributes can contain spaces\nand right angle brackets. Fix the lexer so that this is supported\nproperly. Hint: the current lexer is a finite state machine, with two\nstates (determined by '
+       <code>
+         'in_tag'
+       '). You’ll need more states.'
+     <p>
+       '4-5 '
+       <em>
+         'Syntax highlighting'
+       '. Implement the\n'
+       <code>
+         'view-source'
+       ' protocol as in '
+       <a>
+         'Exercise 1-5'
+       ', but make it\nsyntax-highlight the source code of HTML pages. Keep source code for\nHTML tags in a normal font, but make text contents bold. If you’ve\nimplemented it, wrap text in '
+       <code>
+         '&lt;pre&gt;'
+       ' tags as well to\npreserve line breaks. Hint: subclass the HTML parser and use it to\nimplement your syntax highlighter.'
+     <p>
+       '4-6 '
+       <em>
+         'Mis-nested formatting tags'
+       '. Extend your HTML parser to\nsupport markup like\n'
+       <code>
+         '&lt;b&gt;Bold &lt;i&gt;both&lt;/b&gt; italic&lt;/i&gt;'
+       '.\nThis requires keeping track of the set of open text formatting elements\nand inserting implicit open and close tags when text formatting elements\nare closed in the wrong order. The bold/italic example, for example,\nshould insert an implicit '
+       <code>
+         '&lt;/i&gt;'
+       ' before the\n'
+       <code>
+         '&lt;/b&gt;'
+       ' and an implicit '
+       <code>
+         '&lt;i&gt;'
+       ' after\nit.'
+     <nav>
+       '\n  Chapter 4 of '
+       <a>
+         'Web Browser Engineering'
+       '.\n  '
+       <a>
+         '&lt;'
+       <a>
+         '&gt;'
+     <p>
+       'Did you find this chapter useful? '
+       <button>
+         'Send us feedback!'
+     <footer>
+       '\n  &copy; 2018&ndash;2023 '
+       <a>
+         'Pavel Panchekha'
+       ' &amp; '
+       <a>
+         'Chris Harrelson'
+     <script>
+     <script>
