@@ -4,6 +4,7 @@ from constants import *
 from url import URL
 from html_parser import Text, Element, HTMLParser
 from layout import BlockLayout, DocumentLayout
+from css_parser import CSSParser, style
 
 def print_tree(node, indent=0):
     print(" " * indent, node)
@@ -72,11 +73,19 @@ def layout(tokens):
 
     return display_list
 
+DEFAULT_STYLE_SHEET = CSSParser(open("browser.css").read()).parse()
+
 def paint_tree(layout_object, display_list):
     display_list.extend(layout_object.paint())
 
     for child in layout_object.children:
         paint_tree(child, display_list)
+
+def tree_to_list(tree, list):
+    list.append(tree)
+    for child in tree.children:
+        tree_to_list(child, list)
+    return list
 
 class Browser:
     def __init__(self):
@@ -84,7 +93,8 @@ class Browser:
         self.canvas = tkinter.Canvas(
             self.window, 
             width=WIDTH,
-            height=HEIGHT
+            height=HEIGHT,
+            bg='white'
         )
         self.canvas.pack()
         self.scroll = 0
@@ -108,6 +118,26 @@ class Browser:
         body = url.request()
         self.nodes = HTMLParser(body).parse()
         self.document = DocumentLayout(self.nodes)
+        rules = DEFAULT_STYLE_SHEET.copy()
+        links = [node.attributes["href"]
+             for node in tree_to_list(self.nodes, [])
+             if isinstance(node, Element)
+             and node.tag == "link"
+             and node.attributes.get("rel") == "stylesheet"
+             and "href" in node.attributes]
+        for link in links:
+            style_url = url.resolve(link)
+            try:
+                body = style_url.request()
+            except:
+                continue
+            rules.extend(CSSParser(body).parse())
+
+        def cascade_priority(rule):
+            selector, body = rule
+            return selector.priority
+
+        style(self.nodes, sorted(rules, key=cascade_priority))
         self.document.layout()
         self.display_list = []
         paint_tree(self.document, self.display_list)

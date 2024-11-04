@@ -14,6 +14,15 @@ class URL:
             url = url + "/"
         self.host, url = url.split("/", 1)
         self.path = "/" + url
+    
+    def resolve(self, url):
+        if not url.startswith("/"):
+            dir, _ = self.path.rsplit("/", 1)
+            while url.startswith("../"):
+                _, url = url.split("/", 1)
+                if "/" in dir:
+                    dir, _ = dir.rsplit("/", 1)
+            url = dir + "/" + url
 
     def request(self):
         s = socket.socket(
